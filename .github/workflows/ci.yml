@@ -38,7 +38,10 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install --require-hashes -r requirements/dev.txt
       - name: Lockfile is in sync with pyproject.toml
+        # Seed the output with the committed lockfile so uv keeps its pins: the check then fails only when
+        # pyproject.toml changes, not whenever a dependency publishes a new release.
         run: |
+          cp requirements/dev.txt /tmp/dev.txt
           uv pip compile pyproject.toml --group dev --universal --python-version 3.12 --generate-hashes -o /tmp/dev.txt -q
           diff <(grep -v '^#' requirements/dev.txt) <(grep -v '^#' /tmp/dev.txt)
       - run: ruff format --check .
