@@ -147,3 +147,6 @@ tests/unit        sin BD
 tests/integration PostgreSQL real
 scripts/          smoke test E2E
 ```
+
+
+<img width="1451" height="871" alt="image" src="https://github.com/user-attachments/assets/dc281de4-897e-4954-a1b2-56a3abe29744" />
