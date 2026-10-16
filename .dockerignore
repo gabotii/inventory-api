@@ -1,0 +1,9 @@
+# Allow-list: only what the image needs. Everything else (tests, .env, .git,
+# virtualenvs, caches, docs) never enters the build context.
+*
+!app/
+!alembic/
+!alembic.ini
+!requirements/prod.txt
+**/__pycache__
+**/*.pyc

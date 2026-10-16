@@ -1,0 +1,85 @@
+# Local/staging stack: PostgreSQL + one-shot migrations + API.
+#
+#   # .env.docker (git-ignored): APP_ENV=production, POSTGRES_PASSWORD, JWT_SECRET.
+#   # Kept separate from the local-dev .env, which compose would otherwise read.
+#   docker compose --env-file .env.docker up --build -d
+#   docker compose --env-file .env.docker run --rm -e ADMIN_PASSWORD='…' api \
+#       python -m app.cli create-admin --email admin@example.com --full-name Admin
+#
+# Compose refuses to start without the secrets.
+
+name: inventory-api
+
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: json
+  DATABASE_URL: postgresql+asyncpg://inventory:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/inventory
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+  EXPOSE_DOCS: ${EXPOSE_DOCS:-false}
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: inventory
+      POSTGRES_USER: inventory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    # Not published to the host by default. For local debugging uncomment:
+    # ports: ["127.0.0.1:5432:5432"]
+
+  migrate:
+    build: .
+    image: inventory-api:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    <<: *hardening
+
+  api:
+    image: inventory-api:local
+    environment:
+      <<: *app-env
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      # Memory budget ~= workers x (~100 MB + concurrency x ARGON2_MEMORY_COST_KIB).
+      # 2 x (100 + 2 x 64) MB ~= 460 MB, inside the 768M limit below.
+      PASSWORD_HASH_CONCURRENCY: ${PASSWORD_HASH_CONCURRENCY:-2}
+      # Only trust X-Forwarded-For from these addresses (your reverse proxy).
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+    <<: *hardening
+
+volumes:
+  pgdata:
